@@ -24,6 +24,9 @@ Supervised.removed_regressors.append('PoissonRegressor')
 Supervised.REGRESSORS.remove(('PoissonRegressor', sklearn.linear_model.PoissonRegressor))
  
 
+# Constants
+MODELS = {'e': ExtraTreesRegressor(), 'h': HistGradientBoostingRegressor(), 'x': XGBRegressor()}
+
 def handle_data(data):
     data_unencoded = data.drop(columns=['leaid', 'achv', 'math', 'rla',
                         'LOCALE_VARS', 'DIST_FACTORS', 
@@ -56,13 +59,6 @@ def merge_subsets(subset1, subset2):
 
 # Not working
 def feature_analysis(data, model):
-    if model == 'e':
-        model = ExtraTreesRegressor()
-    elif model == 'h':
-        model = HistGradientBoostingRegressor()
-    elif model == 'x':
-        model = XGBRegressor()
-    
     features = data.drop('achvz', axis=1)
     target = data['achvz']
 
@@ -129,7 +125,7 @@ def save_file(file, format):
         else:
             print("Invalid input. Please try again.")
     if (format == 'csv'):
-        file.to_csv(f"{fileName}.csv")
+        file.to_csv(f"{fileName}.csv", index=False)
     # elif (format == 'pdf'):
     #     file.savefig(file, format= 'pdf')
 
@@ -206,7 +202,7 @@ while True:
                 file = current_file
             model = input("Please enter name of model to analyze: ")
             if model in MODELS.keys():
-                pass
+                model = MODELS[model]
             else:
                 raise ValueError()
         except ValueError:
