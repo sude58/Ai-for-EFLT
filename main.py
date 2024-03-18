@@ -56,31 +56,7 @@ def merge_subsets(subset1, subset2):
 
 # Not working
 def feature_analysis(data, model):
-    if model == 'e':
-        model = ExtraTreesRegressor()
-    elif model == 'h':
-        model = HistGradientBoostingRegressor()
-    elif model == 'x':
-        model = XGBRegressor()
-    
-    features = data.drop('achvz', axis=1)
-    target = data['achvz']
-
-    scaled_features = pd.DataFrame(normalize(features), columns=features.columns)
-
-    X_train, X_test, y_train, y_test = train_test_split(scaled_features, target, test_size = 0.2)
-    
-    model.fit(X_train, y_train)
-    feature_importances = None
-    if model == 'h':
-        perm_importance = permutation_importance(model, X_train, y_train, n_repeats=30)
-        feature_importances = perm_importance.importances_mean
-    elif model == 'x' or model == 'e':
-        feature_importances = model.feature_importances
-    importance = pd.DataFrame({'Feature': X_train.columns, 'Importance': feature_importances})
-    importance = importance.sort_values(by='Importance', ascending=False)
-    importance = importance[importance['Importance'] > 0.001]
-    return importance
+    pass
 
 def trend_analysis(data):
     features = data.drop('achvz', axis=1)
@@ -109,6 +85,14 @@ def feature_visualization(data):
 def trend_visualization(models):
     model_names = list(models['Model'])
     r2_scores = list(models['R-Squared'])
+    outlier = []
+    outlier_score = []
+    for model, score in zip(model_names, r2_scores):
+        if score > 1 or score < -1:
+            outlier.append(model)
+            outlier_score.append(score)
+    model_names = [x for x in model_names if x not in outlier]
+    r2_scores = [x for x in r2_scores if x not in outlier_score]
     plt.figure(figsize=(18, 9))
     plt.barh(model_names, r2_scores, color='skyblue')
     plt.xlabel('R-Squared Score')
@@ -118,7 +102,7 @@ def trend_visualization(models):
     plt2.show()
     return plt
 
-def save_file(file, format):
+def save_file(file, format, save_index=False):
     while True:
         options = input("Will you save file? (Y/N): ")
         if (options == 'N'):
@@ -129,7 +113,7 @@ def save_file(file, format):
         else:
             print("Invalid input. Please try again.")
     if (format == 'csv'):
-        file.to_csv(f"{fileName}.csv")
+        file.to_csv(f"{fileName}.csv", index=save_index)
     # elif (format == 'pdf'):
     #     file.savefig(file, format= 'pdf')
 
@@ -196,7 +180,7 @@ while True:
         else:
             models = trend_analysis(file)
             current_file = models
-            save_file(models, 'csv')
+            save_file(models, 'csv', save_index=True)
     elif (int(options) == 5):
         try:
             fileName = input("Please enter name of data file to analyze (Leave empty if you just want to use current file): ")
