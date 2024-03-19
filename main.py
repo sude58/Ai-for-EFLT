@@ -7,6 +7,7 @@ from sklearn.preprocessing import normalize
 from sklearn.model_selection import train_test_split
 from sklearn.inspection import permutation_importance
 from sklearn.ensemble import HistGradientBoostingRegressor, ExtraTreesRegressor
+from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 import sklearn
 from lazypredict import Supervised
@@ -56,7 +57,23 @@ def merge_subsets(subset1, subset2):
 
 # Not working
 def feature_analysis(data, model):
-    pass
+    importance = None
+    features = data.drop('achvz', axis=1)
+    target = data['achvz']
+    scaled_features = pd.DataFrame(normalize(features), columns=features.columns)
+    X_train, X_test, y_train, y_test = train_test_split(scaled_features, target, test_size = 0.2)
+    model.fit(X_train, y_train)
+    
+    if hasattr(model, 'feature_importances_'):
+        importance = model.feature_importances_
+    else:
+        importance = permutation_importance(model, X_train, y_train, n_repeats=30).importances_mean
+    
+    importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': importance})
+    importance_df = importance_df.sort_values(by='Importance', ascending=False)
+    
+    return importance_df
+        
 
 def trend_analysis(data):
     features = data.drop('achvz', axis=1)
@@ -72,6 +89,8 @@ def trend_analysis(data):
     return models
 
 def feature_visualization(data):
+    data = data.head(20)
+    
     plt.figure(figsize=(12, 18))
     plt.barh(data['Feature'], data['Importance'], color='skyblue')
     plt.xlabel('Feature Importance')
@@ -118,7 +137,7 @@ def save_file(file, format, save_index=False):
     #     file.savefig(file, format= 'pdf')
 
 current_file = None
-MODELS = {'e': 'ExtraTree', 'h': 'Hist', 'x': 'xgb'}
+MODELS = {'e': ExtraTreesRegressor(), 'h': HistGradientBoostingRegressor(), 'x': XGBRegressor(), 'l': LGBMRegressor()}
 
 while True:
     print("1. Process data\n2. Select subset\n3. Merge subsets\n4. Analyze trend\n5. Analyze important feature\n6. Visualize trend\n7. Visualize feature\n8. End program")
@@ -190,7 +209,7 @@ while True:
                 file = current_file
             model = input("Please enter name of model to analyze: ")
             if model in MODELS.keys():
-                pass
+                model = MODELS[model]
             else:
                 raise ValueError()
         except ValueError:
