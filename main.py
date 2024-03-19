@@ -25,6 +25,9 @@ Supervised.removed_regressors.append('PoissonRegressor')
 Supervised.REGRESSORS.remove(('PoissonRegressor', sklearn.linear_model.PoissonRegressor))
  
 
+# Constants
+MODELS = {'e': ExtraTreesRegressor(), 'h': HistGradientBoostingRegressor(), 'x': XGBRegressor()}
+
 def handle_data(data):
     data_unencoded = data.drop(columns=['leaid', 'achv', 'math', 'rla',
                         'LOCALE_VARS', 'DIST_FACTORS', 
@@ -132,7 +135,7 @@ def save_file(file, format, save_index=False):
         else:
             print("Invalid input. Please try again.")
     if (format == 'csv'):
-        file.to_csv(f"{fileName}.csv", index=save_index)
+        file.to_csv(f"{fileName}.csv", index=False)
     # elif (format == 'pdf'):
     #     file.savefig(file, format= 'pdf')
 
