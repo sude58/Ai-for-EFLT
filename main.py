@@ -1,257 +1,163 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-from lazypredict.Supervised import LazyRegressor
-from sklearn.utils import shuffle
-from sklearn.preprocessing import normalize
+import sklearn
 from sklearn.model_selection import train_test_split
-from sklearn.inspection import permutation_importance
+from sklearn.preprocessing import normalize
 from sklearn.ensemble import HistGradientBoostingRegressor, ExtraTreesRegressor
+from sklearn.inspection import permutation_importance
+from lazypredict import Supervised
+from lazypredict.Supervised import LazyRegressor
+import dash
+from dash import html, dcc, callback, Input, Output, State
+import plotly.graph_objs as go
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
-import sklearn
-from lazypredict import Supervised
 
-# Excluding problematic regressors
 Supervised.removed_regressors.append('QuantileRegressor')
 Supervised.REGRESSORS.remove(('QuantileRegressor', sklearn.linear_model._quantile.QuantileRegressor))
-Supervised.removed_regressors.append('RANSACRegressor')
-Supervised.REGRESSORS.remove(('RANSACRegressor', sklearn.linear_model.RANSACRegressor))
-Supervised.removed_regressors.append('Lars')
-Supervised.REGRESSORS.remove(('Lars', sklearn.linear_model.Lars))
-Supervised.removed_regressors.append('GammaRegressor')
-Supervised.REGRESSORS.remove(('GammaRegressor', sklearn.linear_model.GammaRegressor))
-Supervised.removed_regressors.append('PoissonRegressor')
-Supervised.REGRESSORS.remove(('PoissonRegressor', sklearn.linear_model.PoissonRegressor))
- 
 
-# Constants
-MODELS = {'e': ExtraTreesRegressor(), 'h': HistGradientBoostingRegressor(), 'x': XGBRegressor()}
+df = pd.read_csv('AI_Edu_Project/Data/AL_Dist_Cln2.csv')
+specified_subsets = ['Hperasn', 'Hperblk', 'Hperhsp', 'Hperind', 'Hperwht', 'Hperecd', 'Hperell']
 
-def handle_data(data):
-    data_unencoded = data.drop(columns=['leaid', 'achv', 'math', 'rla',
-                        'LOCALE_VARS', 'DIST_FACTORS', 
-                        'COUNTY_FACTORS', 'HEALTH_FACTORS'])
+app = dash.Dash(__name__)
 
-    data = pd.get_dummies(data_unencoded, columns=['leanm', 'grade', 'year', 'Locale4', 'Locale3', 'CT_EconType'], dtype=float)
-    data.fillna(method='ffill', inplace=True)
-    return data   
+app.layout = html.Div([
+    html.H1('Alabama Education Data'),
 
-def subset_selection(data):
-    while True:
-        answer = input("Do you want to select subset? (Y/N)")
-        if (answer == 'N'):
-            return data
-        elif (answer == 'Y'):
-            print("Please read codebook for getting every possible selections?")
-            subsets = input("Please enter subset to choose.").split()
-            try:
-                values = input("Please enter value to make subset.").split()
-                subset = data.loc[data[subsets[0]] == float(values[0])]
-            except:
-                print("Error occured. Please retry.")
-            else:
-                return subset
-        else:
-            print("Invalid answer. Please type valid answer.")
+    dcc.Checklist(
+        id='features_checklist',
+        options=[{'label': column, 'value': column, 'disabled': False} for column in specified_subsets],
+        value=specified_subsets,
+    ),
+    html.Button('Run LazyPredict', id='submit_button', n_clicks=0),
+    html.Div(id='output_container', children=[]),
+    dcc.Graph(id='model_comparison'),
+    dcc.Graph(id='lgbm_feature_importance_plot'),
+    dcc.Graph(id='etr_feature_importance_plot'),
+    dcc.Graph(id='hgb_feature_importance_plot'),
+    dcc.Graph(id='xgb_feature_importance_plot')
+])
 
-def merge_subsets(subset1, subset2):
-    return pd.concat([subset1, subset2])
+@app.callback(
+    [Output('output_container', 'children'),
+     Output('model_comparison', 'figure'),
+     Output('lgbm_feature_importance_plot', 'figure'),
+     Output('etr_feature_importance_plot', 'figure'),
+     Output('hgb_feature_importance_plot', 'figure'),
+     Output('xgb_feature_importance_plot', 'figure')],
+    [Input('submit_button', 'n_clicks')],
+    [State('features_checklist', 'value')]
+)
+def update_output(n_clicks, selected_features):
+    if n_clicks > 0 and len(selected_features) > 0:
+        selected_df = df.copy()
+        # drop unselected features based on user input
+        unselected_features = set(specified_subsets) - set(selected_features)
+        selected_df.drop(columns=unselected_features, inplace=True)
 
-# Not working
-def feature_analysis(data, model):
-<<<<<<< HEAD
-    importance = None
-=======
->>>>>>> bc253ede1e142bd38102be4b5f570225c1136f1b
-    features = data.drop('achvz', axis=1)
-    target = data['achvz']
-    scaled_features = pd.DataFrame(normalize(features), columns=features.columns)
-    X_train, X_test, y_train, y_test = train_test_split(scaled_features, target, test_size = 0.2)
-    model.fit(X_train, y_train)
-    
-    if hasattr(model, 'feature_importances_'):
-        importance = model.feature_importances_
-    else:
-        importance = permutation_importance(model, X_train, y_train, n_repeats=30).importances_mean
-    
-    importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': importance})
-    importance_df = importance_df.sort_values(by='Importance', ascending=False)
-    
-    return importance_df
+        X_train, X_test, y_train, y_test = preprocess_data(selected_df)
         
+        reg = LazyRegressor(verbose=0, ignore_warnings=False, custom_metric=None)
+        models, predictions = reg.fit(X_train, X_test, y_train, y_test)
 
-def trend_analysis(data):
+        top_10_models = models.head(10)
+
+        fig = go.Figure(data=[
+            go.Bar(x=top_10_models.index, y=top_10_models['R-Squared'], name='R-Squared', marker_color='blue')
+        ])
+        fig.update_layout(title='Top 10 Performing Models by R-Squared', xaxis_title='Model', yaxis_title='R-Squared')
+
+        output_text = f"Top 10 performing models:\n{top_10_models}"
+
+        lgbm_importance_df = lgbm_reg(X_train, y_train)
+        etr_importance_df = etr_reg(X_train, y_train)
+        hgb_importance_df = hgb_reg(X_train, y_train)
+        xgb_importance_df = xgb_reg(X_train, y_train)
+
+        lgbm_importance_fig = go.Figure(data=[
+            go.Bar(y=lgbm_importance_df['Feature'], x=lgbm_importance_df['Importance'], orientation='h', marker_color='blue')
+        ])
+        lgbm_importance_fig.update_layout(title='LGBMRegressor - Feature Importance', xaxis_title='Feature Importance')
+
+        etr_importance_fig = go.Figure(data=[
+            go.Bar(y=etr_importance_df['Feature'], x=etr_importance_df['Importance'], orientation='h', marker_color='blue')
+        ])
+        etr_importance_fig.update_layout(title='ExtraTreesRegressor - Feature Importance', xaxis_title='Feature Importance')
+
+        hgb_importance_fig = go.Figure(data=[
+            go.Bar(y=hgb_importance_df['Feature'], x=hgb_importance_df['Importance'], orientation='h', marker_color='blue')
+        ])
+        hgb_importance_fig.update_layout(title='HistGradientBoostingRegressor - Feature Importance', xaxis_title='Feature Importance')
+
+        xgb_importance_fig = go.Figure(data=[
+            go.Bar(y=xgb_importance_df['Feature'], x=xgb_importance_df['Importance'], orientation='h', marker_color='blue')
+        ])
+        xgb_importance_fig.update_layout(title='XGBRegressor - Feature Importance', xaxis_title='Feature Importance')
+
+
+        return output_text, fig, lgbm_importance_fig, etr_importance_fig, hgb_importance_fig, xgb_importance_fig
+
+    else:
+        return '', {}
+
+def preprocess_data(data):
+    data = data.drop(columns=['leaid', 'achv', 'math', 'rla',
+                            'LOCALE_VARS', 'DIST_FACTORS', 
+                            'COUNTY_FACTORS', 'HEALTH_FACTORS'])
+
+    data.fillna(0, inplace=True)
+    data = pd.get_dummies(data, columns=['leanm', 'grade', 'year', 'Locale4', 'Locale3', 'CT_EconType'])
+
     features = data.drop('achvz', axis=1)
     target = data['achvz']
-
     scaled_features = pd.DataFrame(normalize(features), columns=features.columns)
+    Xtrain, Xtest, ytrain, ytest = train_test_split(scaled_features, target)
+    return Xtrain, Xtest, ytrain, ytest
 
-    X_train, X_test, y_train, y_test = train_test_split(scaled_features, target, test_size = 0.2)
+def lgbm_reg(X_train, y_train):
+    lgbm_model = LGBMRegressor()
+    lgbm_model.fit(X_train, y_train)
 
-    reg = LazyRegressor(verbose=0, ignore_warnings=False, custom_metric=None)
-    models, predictions = reg.fit(X_train, X_test, y_train, y_test)
-    print(models)
-    return models
+    feature_importances = lgbm_model.feature_importances_
+    importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': feature_importances})
+    importance_df = importance_df.sort_values(by='Importance', ascending=False)
+    importance_df = importance_df.iloc[:10,:]
 
-def feature_visualization(data):
-    data = data.head(20)
-    
-    plt.figure(figsize=(12, 18))
-    plt.barh(data['Feature'], data['Importance'], color='skyblue')
-    plt.xlabel('Feature Importance')
-    plt.title('Feature Importance')
-    
-    plt2 = plt
-    plt2.show()
-    return plt
-    
+    return importance_df
 
-def trend_visualization(models):
-    model_names = list(models['Model'])
-    r2_scores = list(models['R-Squared'])
-    outlier = []
-    outlier_score = []
-    for model, score in zip(model_names, r2_scores):
-        if score > 1 or score < -1:
-            outlier.append(model)
-            outlier_score.append(score)
-    model_names = [x for x in model_names if x not in outlier]
-    r2_scores = [x for x in r2_scores if x not in outlier_score]
-    plt.figure(figsize=(18, 9))
-    plt.barh(model_names, r2_scores, color='skyblue')
-    plt.xlabel('R-Squared Score')
-    plt.title('Model Performance Comparison')
-    
-    plt2 = plt
-    plt2.show()
-    return plt
+def etr_reg(X_train, y_train):
+    etr_model = ExtraTreesRegressor()
+    etr_model.fit(X_train, y_train)
 
-def save_file(file, format, save_index=False):
-    while True:
-        options = input("Will you save file? (Y/N): ")
-        if (options == 'N'):
-            return
-        elif (options == 'Y'):
-            fileName = input("Enter name of file to save: ")
-            break
-        else:
-            print("Invalid input. Please try again.")
-    if (format == 'csv'):
-        file.to_csv(f"{fileName}.csv", index=False)
-    # elif (format == 'pdf'):
-    #     file.savefig(file, format= 'pdf')
+    feature_importances = etr_model.feature_importances_
+    importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': feature_importances})
+    importance_df = importance_df.sort_values(by='Importance', ascending=False)
+    importance_df = importance_df.iloc[:10,:]
 
-current_file = None
-MODELS = {'e': ExtraTreesRegressor(), 'h': HistGradientBoostingRegressor(), 'x': XGBRegressor(), 'l': LGBMRegressor()}
+    return importance_df
 
-while True:
-    print("1. Process data\n2. Select subset\n3. Merge subsets\n4. Analyze trend\n5. Analyze important feature\n6. Visualize trend\n7. Visualize feature\n8. End program")
-    options = input("Choose option to execute: ")
-    if (int(options) == 1):
-        try:
-            fileName = input("Please enter name of file to process (Leave empty if you just want to use current file): ")
-            if fileName:
-                file = pd.read_csv(fileName)
-            else:
-                file = current_file
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            processed_data = handle_data(file)
-            current_file = processed_data
-            save_file(processed_data, 'csv')
-            
-    elif (int(options) == 2):
-        try:
-            fileName = input("Please enter name of file to extract subset (Leave empty if you just want to use current file): ")
-            if fileName:
-                file = pd.read_csv(fileName)
-            else:
-                file = current_file
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            subset = subset_selection(file)
-            current_file = subset
-            save_file(subset, 'csv')
-    elif (int(options) == 3):
-        try:
-            fileName1 = input("Please enter name of file to extract subset (Leave empty if you just want to use current file): ")
-            fileName2 = input("Please enter name of file to extract subset (Leave empty if you just want to use current file): ")
-            if fileName1:
-                file1 = pd.read_csv(fileName1)
-            else:
-                file1 = current_file
-            if fileName2:
-                file2 = pd.read_csv(fileName2)
-            else:
-                file2 = current_file
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            merged = merge_subsets(file1, file2)
-            current_file = merged
-            save_file(merged, 'csv')
-    elif (int(options) == 4):
-        try:
-            fileName = input("Please enter name of file to analyze (Leave empty if you just want to use current file): ")
-            if fileName:
-                file = pd.read_csv(fileName)
-            else:
-                file = current_file
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            models = trend_analysis(file)
-            current_file = models
-            save_file(models, 'csv', save_index=True)
-    elif (int(options) == 5):
-        try:
-            fileName = input("Please enter name of data file to analyze (Leave empty if you just want to use current file): ")
-            if fileName:
-                file = pd.read_csv(fileName)
-            else:
-                file = current_file
-            model = input("Please enter name of model to analyze: ")
-            if model in MODELS.keys():
-                model = MODELS[model]
-            else:
-                raise ValueError()
-        except ValueError:
-            print("Can't find a model. Please enter existing model")
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            importance = feature_analysis(file, model)
-            current_file = importance
-            save_file(importance, 'csv')
-    elif (int(options) == 6):
-        try:
-            fileName = input("Please enter name of file to visualize (Leave empty if you just want to use current file): ")
-            if fileName:
-                file = pd.read_csv(fileName)
-            else:
-                file = current_file
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            plot = trend_visualization(file)
-            current_file = plot
-    elif (int(options) == 7):
-        try:
-            fileName = input("Please enter name of file to visualize (Leave empty if you just want to use current file): ")
-            if fileName:
-                file = pd.read_csv(fileName)
-            else:
-                file = current_file
-        except:
-            print("Can't find a file. Please enter existing filename")
-        else:
-            plot = feature_visualization(file)
-            current_file = plot
-    elif (int(options) == 8):
-        break
-    else:
-        print("Invalid input. Please try again.")
+def hgb_reg(X_train, y_train):
+    hgb_model = HistGradientBoostingRegressor()
+    hgb_model.fit(X_train, y_train)
 
+    perm_importance = permutation_importance(hgb_model, X_train, y_train, n_repeats=20, random_state=22)
+    feature_importances = perm_importance.importances_mean
+    importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': feature_importances})
+    importance_df = importance_df.sort_values(by='Importance', ascending=False)
+    importance_df = importance_df.iloc[:10,:]
+
+    return importance_df
+
+def xgb_reg(X_train, y_train):
+    xgb_model = XGBRegressor()
+    xgb_model.fit(X_train, y_train)
+
+    feature_importances = xgb_model.feature_importances_
+    importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': feature_importances})
+    importance_df = importance_df.sort_values(by='Importance', ascending=False)
+    importance_df = importance_df.iloc[:10,:]
+
+    return importance_df
+
+# Run the app
+if __name__ == '__main__':
+    app.run_server(debug=True)
